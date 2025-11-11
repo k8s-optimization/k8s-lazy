@@ -1,0 +1,12 @@
+---
+- hosts: masters
+  become: yes
+  tasks:
+    - name: Download helm installation script
+      get_url:
+        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        mode: '0700'
+        dest: /tmp/install_helm.sh
+
+    - name: Install helm
+      command: /tmp/install_helm.sh

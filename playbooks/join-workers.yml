@@ -1,0 +1,27 @@
+---
+- hosts: workers
+  become: yes
+  tasks:
+    - name: Check if node is already joined
+      stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
+
+    - name: Copy join command from master
+      copy:
+        src: ./kubeadm_join_cmd.sh
+        dest: /tmp/kubeadm_join_cmd.sh
+        mode: '0755'
+      when: not kubelet_conf.stat.exists
+
+    - name: Join worker to cluster
+      command: /tmp/kubeadm_join_cmd.sh
+      when: not kubelet_conf.stat.exists
+
+    - name: Wait for kubelet to be ready
+      wait_for:
+        port: 10250
+        host: "{{ node_ip }}"
+        delay: 10
+        timeout: 60
+

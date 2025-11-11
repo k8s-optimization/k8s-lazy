@@ -1,0 +1,30 @@
+---
+- name: Prepare all nodes
+  import_playbook: playbooks/prepare-nodes.yml
+
+- name: Install container runtime
+  import_playbook: playbooks/install-containerd.yml
+
+- name: Install Kubernetes
+  import_playbook: playbooks/install-k8s.yml
+
+- name: Initialize master node
+  import_playbook: playbooks/init-master.yml
+
+- name: Join worker nodes
+  import_playbook: playbooks/join-workers.yml
+
+- name: Install Helm
+  import_playbook: playbooks/install-helm.yml
+
+- name: Install CNI (Calico)
+  import_playbook: playbooks/install-cni.yml
+
+- name: Install NGINX Ingress
+  import_playbook: playbooks/install-ingress.yaml
+
+- name: Install MetalLB
+  import_playbook: playbooks/install-metallb.yaml
+
+- name: Install Longhorn
+  import_playbook: playbooks/install-longhorn.yaml

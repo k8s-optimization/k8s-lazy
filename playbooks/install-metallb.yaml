@@ -1,0 +1,40 @@
+---
+- hosts: masters
+  become: yes
+
+  tasks:
+    - name: Install MetalLB
+      kubernetes.core.helm:
+        name: metallb
+        chart_ref: metallb
+        chart_repo_url: https://metallb.github.io/metallb
+        release_namespace: metallb-system
+        create_namespace: true
+        wait: true
+        values: {}
+
+    - name: Create MetalLB IP Address pool
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: default-pool
+            namespace: metallb-system
+          spec:
+            addresses:
+              - "192.168.56.100-192.168.56.200"
+
+    - name: Create MetalLB L2 Advertisement
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: l2
+            namespace: metallb-system
+          spec:
+            ipAddressPools:
+            - default-pool

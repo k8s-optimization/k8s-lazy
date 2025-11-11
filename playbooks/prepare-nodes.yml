@@ -1,0 +1,77 @@
+---
+- hosts: k8s_cluster
+  become: yes
+  tasks:
+    - name: Update system packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+        cache_valid_time: 3600
+
+    - name: Install required packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - software-properties-common
+          - python3-pip          # <- ensure pip is installed
+          - nfs-common
+        state: present
+
+    - name: Disable swap permanently
+      shell: |
+        swapoff -a
+        sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+    - name: Load kernel modules
+      modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Make kernel modules persistent
+      copy:
+        content: |
+          overlay
+          br_netfilter
+        dest: /etc/modules-load.d/k8s.conf
+
+    - name: Set sysctl parameters
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+        - { name: 'net.ipv4.ip_forward', value: '1' }
+
+    - name: Add hosts entries
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ hostvars[item]['node_ip'] }} {{ item }}"
+        state: present
+      loop: "{{ groups['k8s_cluster'] }}"
+
+    - name: Install Python Kubernetes client
+      pip:
+        name:
+          - kubernetes
+          - openshift
+        executable: pip3
+
+    - name: Reboot if needed
+      reboot:
+        msg: "Reboot initiated by Ansible for kernel parameter changes"
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 0
+        post_reboot_delay: 30
+      when: ansible_facts['kernel'] is version('5.4', '<')
+

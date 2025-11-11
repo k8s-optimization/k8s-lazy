@@ -1,0 +1,44 @@
+---
+- hosts: k8s_cluster
+  become: yes
+  tasks:
+    - name: Add Kubernetes GPG key
+      apt_key:
+        url: https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key
+        state: present
+
+    - name: Add Kubernetes repository
+      apt_repository:
+        repo: "deb https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
+        state: present
+        filename: kubernetes
+
+    - name: Install Kubernetes packages
+      apt:
+        name:
+          - kubelet={{ k8s_version }}-1.1
+          - kubeadm={{ k8s_version }}-1.1
+          - kubectl={{ k8s_version }}-1.1
+        state: present
+        update_cache: yes
+
+    - name: Hold Kubernetes packages
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Configure kubelet
+      copy:
+        content: |
+          KUBELET_EXTRA_ARGS="--cgroup-driver=systemd"
+        dest: /etc/default/kubelet
+
+    - name: Enable kubelet service
+      systemd:
+        name: kubelet
+        enabled: yes
+        daemon_reload: yes
