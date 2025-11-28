@@ -1,0 +1,158 @@
+---
+- name: Create Kubernetes user with embedded kubeconfig
+  hosts: masters
+  gather_facts: false
+
+  vars:
+    kubeconfig_out_dir: "/tmp/kubeconfigs"
+    local_kubeconfig_dir: "../kubeconfigs"
+
+  tasks:
+    - name: Validate required parameters
+      assert:
+        that:
+          - username is defined
+          - group_name is defined or role_name is defined
+        fail_msg: "You must pass 'username' and either 'group_name' or 'role_name' via -e"
+
+    - name: Ensure kubeconfig output directory exists on master
+      ansible.builtin.file:
+        path: "{{ kubeconfig_out_dir }}/{{ username }}"
+        state: directory
+        mode: '0755'
+
+    - name: Generate private key
+      ansible.builtin.openssl_privatekey:
+        path: "{{ kubeconfig_out_dir }}/{{ username }}/{{ username }}.key"
+        size: 2048
+
+    - name: Generate CSR
+      ansible.builtin.openssl_csr:
+        path: "{{ kubeconfig_out_dir }}/{{ username }}/{{ username }}.csr"
+        privatekey_path: "{{ kubeconfig_out_dir }}/{{ username }}/{{ username }}.key"
+        common_name: "{{ username }}"
+        organization_name: "{{ group_name | default('') }}"
+
+    - name: Read CSR content on master
+      slurp:
+        src: "{{ kubeconfig_out_dir }}/{{ username }}/{{ username }}.csr"
+      register: csr_content
+
+    - name: Create Kubernetes CSR
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: certificates.k8s.io/v1
+          kind: CertificateSigningRequest
+          metadata:
+            name: "{{ username }}"
+          spec:
+            request: "{{ csr_content.content | b64decode | b64encode }}"
+            signerName: kubernetes.io/kube-apiserver-client
+            usages:
+              - client auth
+
+    - name: Approve CSR
+      command: kubectl certificate approve {{ username }}
+
+    - name: Get signed certificate
+      command: kubectl get csr {{ username }} -o jsonpath='{.status.certificate}'
+      register: signed_crt
+
+    - name: Encode private key in base64
+      slurp:
+        src: "{{ kubeconfig_out_dir }}/{{ username }}/{{ username }}.key"
+      register: key_b64
+
+    - name: Read Kubernetes CA certificate
+      slurp:
+        src: "/etc/kubernetes/pki/ca.crt"
+      register: ca_cert
+
+    - name: Get Kubernetes API server URL
+      command: kubectl cluster-info
+      register: cluster_info
+
+    - name: Set kube_api_server fact
+      set_fact:
+        kube_api_server: "{{ cluster_info.stdout_lines
+                             | select('search','Kubernetes control plane')
+                             | list
+                             | first
+                             | regex_search('https://[0-9\\.]+:[0-9]+') }}"
+
+    - name: Create embedded kubeconfig on master
+      copy:
+        dest: "{{ kubeconfig_out_dir }}/{{ username }}/{{ username }}.kubeconfig"
+        content: |
+          apiVersion: v1
+          kind: Config
+          clusters:
+          - cluster:
+              certificate-authority-data: "{{ ca_cert.content }}"
+              server: "{{ kube_api_server }}"
+            name: kubernetes
+          contexts:
+          - context:
+              cluster: kubernetes
+              user: {{ username }}
+            name: {{ username }}@kubernetes
+          current-context: {{ username }}@kubernetes
+          users:
+          - name: {{ username }}
+            user:
+              client-certificate-data: "{{ signed_crt.stdout | b64decode | b64encode }}"
+              client-key-data: "{{ key_b64.content }}"
+
+    - name: Ensure local kubeconfig output directory exists
+      delegate_to: localhost
+      ansible.builtin.file:
+        path: "{{ local_kubeconfig_dir }}/{{ username }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copy kubeconfig to localhost
+      fetch:
+        src: "{{ kubeconfig_out_dir }}/{{ username }}/{{ username }}.kubeconfig"
+        dest: "{{ local_kubeconfig_dir }}/{{ username }}/"
+        flat: yes
+
+    - name: Bind user to Role
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: "{{ username }}-{{ role_name }}-binding"
+            namespace: "{{ role_namespace }}"
+          subjects:
+            - kind: User
+              name: "{{ username }}"
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: "{{ role_name }}"
+      when:
+        - role_name is defined
+        - cluster_role is not defined or not (cluster_role | bool)
+
+    - name: Bind user to ClusterRole
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: "{{ username }}-{{ role_name }}-binding"
+          subjects:
+            - kind: User
+              name: "{{ username }}"
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: "{{ role_name }}"
+      when:
+        - role_name is defined
+        - cluster_role is defined
+        - cluster_role | bool

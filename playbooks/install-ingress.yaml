@@ -12,3 +12,29 @@
         release_namespace: ingress-nginx
         create_namespace: true
         release_state: present
+        values:
+          controller:
+            resources:
+              requests:
+                cpu: 200m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+            metrics:
+              enabled: true
+            affinity:
+              podAntiAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  - labelSelector:
+                      matchExpressions:
+                        - key: app.kubernetes.io/name
+                          operator: In
+                          values:
+                            - ingress-nginx
+                    topologyKey: kubernetes.io/hostname
+            hpa:
+              enabled: true
+              minReplicas: 2
+              maxReplicas: 5
+              targetCPUUtilizationPercentage: 50

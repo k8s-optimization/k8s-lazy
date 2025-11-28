@@ -1,0 +1,64 @@
+---
+- name: Create RBAC groups
+  hosts: masters
+  become: yes
+
+  vars:
+    rbac_groups:
+      - name: developers
+        role: developer
+        namespace: dev
+      - name: cicd
+        role: cicd-operator
+        namespace: cicd
+      - name: prod-operators
+        role: prod-operator
+        namespace: prod
+      - name: prod-admins
+        role: prod-admin
+        namespace: prod
+      - name: longhorn-admins
+        role: longhorn-admin
+        cluster_role: true
+
+  tasks:
+    - name: Create rolebindings for groups
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: "{{ item.name }}-binding"
+            namespace: "{{ item.namespace }}"
+          subjects:
+            - kind: Group
+              name: "{{ item.name }}"
+          roleRef:
+            kind: Role
+            name: "{{ item.role }}"
+            apiGroup: rbac.authorization.k8s.io
+      loop: "{{ rbac_groups }}"
+      when: item.cluster_role is not defined
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create ClusterRoleBindings for groups
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: "{{ item.name }}-cluster-binding"
+          subjects:
+            - kind: Group
+              name: "{{ item.name }}"
+          roleRef:
+            kind: ClusterRole
+            name: "{{ item.role }}"
+            apiGroup: rbac.authorization.k8s.io
+      loop: "{{ rbac_groups }}"
+      when: item.cluster_role is defined
+      loop_control:
+        label: "{{ item.name }}"

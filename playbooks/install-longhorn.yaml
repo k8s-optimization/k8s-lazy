@@ -3,7 +3,17 @@
   hosts: masters
   become: yes
 
+  vars:
+    longhorn_user: "admin"
+    auth_file_path: "/tmp/auth"
+
   tasks:
+    - name: Check is password setted
+      assert:
+        that:
+          - longhorn_password is defined
+        fail_msg: "You must pass 'longhorn_password'"
+
     - name: Install Longhorn
       kubernetes.core.helm:
         name: longhorn
@@ -13,3 +23,62 @@
         create_namespace: true
         state: present
         wait: true
+
+    - name: Create auth file for basic auth
+      shell: |
+        echo "{{ longhorn_user }}:$(openssl passwd -apr1 -stdin <<< '{{ longhorn_password }}')" > {{ auth_file_path }}
+      args:
+        executable: /bin/bash
+
+    - name: Read temporary auth file on remote host
+      slurp:
+        src: "{{ auth_file_path }}"
+      register: auth_file_content
+
+    - name: Create Kubernetes basic-auth secret
+      kubernetes.core.k8s:
+        state: present
+        namespace: longhorn-system
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: basic-auth
+          type: Opaque
+          data:
+            auth: "{{ auth_file_content.content }}"
+
+    - name: Remove temporary auth file
+      file:
+        path: "{{ auth_file_path }}"
+        state: absent
+
+    - name: Deploy Longhorn Ingress Frontend
+      tags: frontend
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: longhorn-ingress
+            namespace: longhorn-system
+            annotations:
+              nginx.ingress.kubernetes.io/auth-type: basic
+              nginx.ingress.kubernetes.io/auth-secret: basic-auth
+              nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required'
+              nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+              nginx.ingress.kubernetes.io/proxy-body-size: 10000m
+          spec:
+            ingressClassName: nginx
+            rules:
+              - host: longhorn.local
+                http:
+                  paths:
+                    - pathType: Prefix
+                      path: /
+                      backend:
+                        service:
+                          name: longhorn-frontend
+                          port:
+                            number: 80
