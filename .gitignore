@@ -3,3 +3,5 @@
 playbooks/kubeadm_join_cmd.sh
 .DS_STORE
 kubeconfigs/
+.vault_pass
+group_vars/all/secrets.yml
