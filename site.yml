@@ -26,5 +26,11 @@
 - name: Install MetalLB
   import_playbook: playbooks/install-metallb.yaml
 
-- name: Install Longhorn
-  import_playbook: playbooks/install-longhorn.yaml
+- name: Install Kubernetes Dashboard
+  import_playbook: playbooks/install-dashboard.yml
+
+- name: Create RBAC roles
+  import_playbook: playbooks/create-roles.yml
+
+- name: Create RBAC groups
+  import_playbook: playbooks/create-groups.yml

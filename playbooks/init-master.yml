@@ -67,3 +67,29 @@
         dest: ./kubeadm_join_cmd.sh
         flat: yes
 
+    - name: Create dev namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: dev
+
+    - name: Create CI/CD namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: cicd
+
+    - name: Create Production namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: prod

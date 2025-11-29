@@ -2,3 +2,4 @@
 .vagrant/
 playbooks/kubeadm_join_cmd.sh
 .DS_STORE
+kubeconfigs/

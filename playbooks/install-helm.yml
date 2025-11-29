@@ -9,4 +9,6 @@
         dest: /tmp/install_helm.sh
 
     - name: Install helm
+      environment:
+        DESIRED_VERSION: v3.19.0
       command: /tmp/install_helm.sh

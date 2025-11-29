@@ -1,0 +1,106 @@
+---
+- name: Create RBAC roles for cluster
+  hosts: masters
+  become: yes
+
+  tasks:
+    - name: Create Longhorn Admin
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: longhorn-admin
+          rules:
+            - apiGroups: ["longhorn.io"]
+              resources: ["*"]
+              verbs: ["*"]
+
+    - name: Create developer role
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: developer
+            namespace: dev
+          rules:
+            - apiGroups: ["", "apps", "batch"]
+              resources:
+                - pods
+                - pods/log
+                - pods/exec
+                - deployments
+                - statefulsets
+                - daemonsets
+                - jobs
+                - cronjobs
+                - services
+                - configmaps
+              verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+            - apiGroups: [""]
+              resources: ["secrets"]
+              verbs: ["get"]
+
+    - name: Create cicd-operator role
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: cicd-operator
+            namespace: cicd
+          rules:
+            - apiGroups: ["", "apps", "batch"]
+              resources:
+                - deployments
+                - pods
+                - jobs
+                - cronjobs
+                - replicasets
+                - services
+                - configmaps
+                - secrets
+              verbs: ["*"]
+
+    - name: Create prod-operator role
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: prod-operator
+            namespace: prod
+          rules:
+            - apiGroups: ["", "apps", "batch"]
+              resources:
+                - pods
+                - pods/log
+                - deployments
+                - jobs
+                - statefulsets
+                - services
+              verbs: ["get", "list", "watch"]
+
+            - apiGroups: [""]
+              resources: ["pods/exec"]
+              verbs: ["create"]
+
+    - name: Create prod-admin role
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: prod-admin
+            namespace: prod
+          rules:
+            - apiGroups: ["", "apps", "batch"]
+              resources: ["*"]
+              verbs: ["*"]
