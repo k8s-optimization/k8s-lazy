@@ -24,7 +24,7 @@
             namespace: metallb-system
           spec:
             addresses:
-              - "192.168.56.100-192.168.56.200"
+              - "{{ metallb_ip_range }}"
 
     - name: Create MetalLB L2 Advertisement
       kubernetes.core.k8s:

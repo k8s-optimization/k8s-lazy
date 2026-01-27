@@ -59,12 +59,12 @@
         state: present
       loop: "{{ groups['k8s_cluster'] }}"
 
-    - name: Install Python Kubernetes client
-      pip:
+    - name: Install Python libraries globally (Force)
+      ansible.builtin.pip:
         name:
           - kubernetes
           - openshift
-        executable: pip3
+        extra_args: --break-system-packages
 
     - name: Reboot if needed
       reboot:

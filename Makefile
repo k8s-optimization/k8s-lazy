@@ -18,21 +18,21 @@ vms-status:
 
 k8s-deploy: 
 	@echo "🚀 Deploying Kubernetes cluster..."
-	ansible-playbook -i inventory.ini site.yml
+	ansible-playbook -i inventory.ini site.yml --vault-password-file .vault_pass
 
 k8s-destroy: 
 	@echo "💥 Destroying Kubernetes cluster..."
-	ansible masters -i inventory.ini -b -m shell -a "kubeadm reset -f"
-	ansible workers -i inventory.ini -b -m shell -a "kubeadm reset -f"
-	ansible k8s_cluster -i inventory.ini -b -m shell -a "rm -rf /etc/kubernetes /var/lib/etcd /var/lib/kubelet /var/lib/dockershim /var/run/kubernetes ~/.kube"
-	ansible k8s_cluster -i inventory.ini -b -m shell -a "iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X"
+	ansible masters -i inventory.ini -b -m shell -a "kubeadm reset -f" --vault-password-file .vault_pass
+	ansible workers -i inventory.ini -b -m shell -a "kubeadm reset -f" --vault-password-file .vault_pass
+	ansible k8s_cluster -i inventory.ini -b -m shell -a "rm -rf /etc/kubernetes /var/lib/etcd /var/lib/kubelet /var/lib/dockershim /var/run/kubernetes ~/.kube" --vault-password-file .vault_pass
+	ansible k8s_cluster -i inventory.ini -b -m shell -a "iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X" --vault-password-file .vault_pass
 	rm -f kubeadm_join_cmd.sh
 
 k8s-status: 
 	@echo "📊 Checking cluster status..."
-	ansible masters -i inventory.ini -m shell -a "kubectl get nodes -o wide" -u vagrant
+	ansible masters -i inventory.ini -m shell -a "kubectl get nodes -o wide" -u vagrant --vault-password-file .vault_pass
 	@echo ""
-	ansible masters -i inventory.ini -m shell -a "kubectl get pods -A -o wide" -u vagrant
+	ansible masters -i inventory.ini -m shell -a "kubectl get pods -A -o wide" -u vagrant --vault-password-file .vault_pass
 
 ssh-master: 
 	vagrant ssh master
