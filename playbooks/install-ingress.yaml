@@ -17,7 +17,6 @@
             service:
               type: LoadBalancer
               loadBalancerIP: "{{ web_entrypoint_ip }}"
-              externalTrafficPolicy: Local
             resources:
               requests:
                 cpu: 200m
