@@ -2,18 +2,39 @@
 - hosts: masters
   become: yes
   tasks:
-    - name: Install dashboard
-      kubernetes.core.helm:
-        name: kubernetes-dashboard
-        chart_ref: kubernetes-dashboard
-        chart_repo_url: https://kubernetes.github.io/dashboard
-        release_namespace: kubernetes-dashboard
-        create_namespace: true
-        state: present
-        wait: yes
-        timeout: 300s
+    - name: Download Kubernetes Dashboard manifest
+      get_url:
+        url: https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+        dest: /tmp/kubernetes-dashboard.yaml
+        mode: '0644'
 
-    - name: Deploy Longhorn Ingress Frontend
+    - name: Apply Kubernetes Dashboard manifest
+      kubernetes.core.k8s:
+        state: present
+        src: /tmp/kubernetes-dashboard.yaml
+
+    - name: Wait for dashboard pods to be ready
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: kubernetes-dashboard
+        label_selectors:
+          - k8s-app=kubernetes-dashboard
+      register: dashboard_pods
+      until: dashboard_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length > 0
+      retries: 30
+      delay: 10
+
+    - name: Get dashboard services
+      kubernetes.core.k8s_info:
+        kind: Service
+        namespace: kubernetes-dashboard
+      register: dashboard_services
+
+    - name: Show available services
+      debug:
+        msg: "Available services: {{ dashboard_services.resources | map(attribute='metadata.name') | list }}"
+
+    - name: Deploy Kubernetes Dashboard Ingress
       tags: frontend
       kubernetes.core.k8s:
         state: present
@@ -25,31 +46,35 @@
             namespace: kubernetes-dashboard
             annotations:
               nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-              nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+              nginx.ingress.kubernetes.io/use-regex: "true"
               nginx.ingress.kubernetes.io/proxy-body-size: 1000m
+              nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
+              nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+              nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+              nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,192.168.0.0/16"
           spec:
             ingressClassName: nginx
             rules:
-              - host: dashboard.local
+              - host: "dashboard.{{ web_entrypoint_ip }}.nip.io"
                 http:
                   paths:
                     - pathType: Prefix
                       path: /
                       backend:
                         service:
-                          name: kubernetes-dashboard-kong-proxy
+                          name: kubernetes-dashboard
                           port:
-                            number: 443
+                            number: 443 
 
     - name: Create ServiceAccount for dashboard admin
       kubernetes.core.k8s:
         state: present
-        namespace: kubernetes-dashboard
         definition:
           apiVersion: v1
           kind: ServiceAccount
           metadata:
             name: dashboard-admin
+            namespace: kubernetes-dashboard
 
     - name: Create ClusterRoleBinding for dashboard
       kubernetes.core.k8s:

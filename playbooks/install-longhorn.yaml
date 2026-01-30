@@ -69,10 +69,13 @@
               nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required'
               nginx.ingress.kubernetes.io/ssl-redirect: 'false'
               nginx.ingress.kubernetes.io/proxy-body-size: 10000m
+              nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
+              nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+              nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
           spec:
             ingressClassName: nginx
             rules:
-              - host: longhorn.local
+              - host: "longhorn.{{ web_entrypoint_ip }}.nip.io"
                 http:
                   paths:
                     - pathType: Prefix
