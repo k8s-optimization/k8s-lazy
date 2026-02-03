@@ -13,6 +13,18 @@
         wait: true
         values: {}
 
+    - name: Wait for MetalLB webhook to be ready
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        namespace: metallb-system
+        name: metallb-controller
+      register: metallb_controller
+      until:
+        - metallb_controller.resources | length > 0
+        - metallb_controller.resources[0].status.availableReplicas | default(0) > 0
+      retries: 30
+      delay: 10
+
     - name: Create MetalLB IP Address pool
       kubernetes.core.k8s:
         state: present

@@ -2,13 +2,26 @@
 - hosts: masters
   become: yes
   tasks:
+    - name: Check if helm is installed
+      command: which helm
+      register: helm_installed
+      changed_when: false
+      failed_when: false
+
     - name: Download helm installation script
-      get_url:
-        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+      shell: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 -o /tmp/install_helm.sh
+      args:
+        creates: /tmp/install_helm.sh
+      when: helm_installed.rc != 0
+
+    - name: Make helm script executable
+      file:
+        path: /tmp/install_helm.sh
         mode: '0700'
-        dest: /tmp/install_helm.sh
+      when: helm_installed.rc != 0
 
     - name: Install helm
       environment:
         DESIRED_VERSION: v3.19.0
       command: /tmp/install_helm.sh
+      when: helm_installed.rc != 0

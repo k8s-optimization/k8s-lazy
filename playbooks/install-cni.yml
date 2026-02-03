@@ -2,46 +2,29 @@
 - hosts: masters
   become: yes
   tasks:
-    - name: Create values.yaml for Calico
-      copy:
-        dest: /tmp/values.yaml
-        mode: '0644'
-        content: |
-          installation:
-            cni:
-              type: Calico
-          
-          calicoNetwork:
-            bgp: Disabled
-            ipPools:
-              - cidr: 10.244.0.0/16
-                encapsulation: None
-
-    - name: Add Calico Helm repo
-      command: helm repo add projectcalico https://docs.tigera.io/calico/charts
-      register: repo_add
-      failed_when: repo_add.rc not in [0, 1]
-
-    - name: Update Helm repos
-      command: helm repo update
-
-    - name: Create Tigera namespace for Calico
-      kubernetes.core.k8s:
-        api_version: v1
-        kind: Namespace
+    - name: Install Tigera Operator via Helm
+      kubernetes.core.helm:
         name: tigera-operator
+        chart_ref: tigera-operator
+        chart_repo_url: https://docs.tigera.io/calico/charts
+        release_namespace: tigera-operator
+        create_namespace: true
+        release_state: present
+        wait: true
 
-    - name: Install Calico via Helm
-      command: >
-        helm install calico projectcalico/tigera-operator
-        --version v3.31.0
-        -f /tmp/values.yaml
-        --namespace tigera-operator
-      args:
-        creates: /tmp/.calico-installed
-      register: helm_install_output
-
-    - name: Mark Calico as installed
-      file:
-        path: /tmp/.calico-installed
-        state: touch
+    - name: Create Calico Installation CR
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operator.tigera.io/v1
+          kind: Installation
+          metadata:
+            name: default
+          spec:
+            calicoNetwork:
+              bgp: Disabled
+              ipPools:
+                - cidr: "{{ pod_network_cidr }}"
+                  encapsulation: VXLANCrossSubnet
+                  natOutgoing: Enabled
+                  nodeSelector: all()

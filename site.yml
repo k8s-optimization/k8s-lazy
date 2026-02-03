@@ -20,7 +20,7 @@
 - name: Install CNI (Calico)
   import_playbook: playbooks/install-cni.yml
 
-- name: Install NGINX Ingress
+- name: Install Traefik Ingress
   import_playbook: playbooks/install-ingress.yaml
 
 - name: Install MetalLB

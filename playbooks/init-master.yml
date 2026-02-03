@@ -66,6 +66,12 @@
         src: /tmp/kubeadm_join_cmd.sh
         dest: ./kubeadm_join_cmd.sh
         flat: yes
+    
+    - name: Fetch kubeconfig to local
+      fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: ~/.kube/config
+        flat: yes
 
     - name: Create dev namespace
       kubernetes.core.k8s:
