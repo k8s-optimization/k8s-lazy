@@ -2,16 +2,24 @@
 - hosts: k8s_cluster
   become: yes
   tasks:
+    - name: Check if kubeadm is already installed
+      command: which kubeadm
+      register: kubeadm_installed
+      changed_when: false
+      failed_when: false
+
     - name: Add Kubernetes GPG key
       apt_key:
         url: https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key
         state: present
+      when: kubeadm_installed.rc != 0
 
     - name: Add Kubernetes repository
       apt_repository:
         repo: "deb https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
         state: present
         filename: kubernetes
+      when: kubeadm_installed.rc != 0
 
     - name: Install Kubernetes packages
       apt:
@@ -20,7 +28,7 @@
           - kubeadm={{ k8s_version }}-1.1
           - kubectl={{ k8s_version }}-1.1
         state: present
-        update_cache: yes
+        update_cache: "{{ kubeadm_installed.rc != 0 }}"
 
     - name: Hold Kubernetes packages
       dpkg_selections:

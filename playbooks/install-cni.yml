@@ -2,40 +2,29 @@
 - hosts: masters
   become: yes
   tasks:
-    - name: Create values.yaml for Calico
-      copy:
-        dest: /tmp/calico-values.yaml
-        mode: '0644'
-        content: |
-          installation:
-            cni:
-              type: Calico
-          
-          calicoNetwork:
-            bgp: Disabled
-            ipPools:
-              - cidr: {{ pod_network_cidr }} 
-                encapsulation: None
-
-    - name: Add Calico Helm repo
-      kubernetes.core.helm_repository:
-        name: projectcalico
-        repo_url: https://docs.tigera.io/calico/charts
-
-    - name: Create Tigera namespace for Calico
-      kubernetes.core.k8s:
-        api_version: v1
-        kind: Namespace
-        name: tigera-operator
-        state: present
-
-    - name: Install/Upgrade Calico via Helm
+    - name: Install Tigera Operator via Helm
       kubernetes.core.helm:
-        name: calico
-        chart_ref: projectcalico/tigera-operator
-        chart_version: v3.31.0
+        name: tigera-operator
+        chart_ref: tigera-operator
+        chart_repo_url: https://docs.tigera.io/calico/charts
         release_namespace: tigera-operator
-        values_files:
-          - /tmp/calico-values.yaml
+        create_namespace: true
+        release_state: present
+        wait: true
+
+    - name: Create Calico Installation CR
+      kubernetes.core.k8s:
         state: present
-        update_repo_cache: yes
+        definition:
+          apiVersion: operator.tigera.io/v1
+          kind: Installation
+          metadata:
+            name: default
+          spec:
+            calicoNetwork:
+              bgp: Disabled
+              ipPools:
+                - cidr: "{{ pod_network_cidr }}"
+                  encapsulation: VXLANCrossSubnet
+                  natOutgoing: Enabled
+                  nodeSelector: all()

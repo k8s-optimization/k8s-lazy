@@ -1,47 +1,84 @@
 ---
-- name: Install Ingress NGINX using Helm module
+- name: Install Traefik Ingress Controller using Helm
   hosts: masters
   become: yes
 
   tasks:
-    - name: Install / upgrade Ingress NGINX
+    - name: Install / upgrade Traefik Ingress Controller
       kubernetes.core.helm:
-        name: ingress-nginx
-        chart_ref: ingress-nginx
-        chart_repo_url: "https://kubernetes.github.io/ingress-nginx"
-        release_namespace: ingress-nginx
+        name: traefik
+        chart_ref: traefik
+        chart_repo_url: https://traefik.github.io/charts
+        release_namespace: traefik-system
         create_namespace: true
         release_state: present
         values:
-          controller:
-            service:
-              type: LoadBalancer
+          deployment:
+            replicas: 1
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          ports:
+            web:
+              port: 8000
+              exposedPort: 80
+              protocol: TCP
+            websecure:
+              port: 8443
+              exposedPort: 443
+              protocol: TCP
+            traefik:
+              port: 9000
+              expose:
+                default: false
+          service:
+            enabled: true
+            type: LoadBalancer
+            spec:
               loadBalancerIP: "{{ web_entrypoint_ip }}"
-            resources:
-              requests:
-                cpu: 200m
-                memory: 256Mi
-              limits:
-                cpu: 500m
-                memory: 512Mi
-            config:
-              use-forwarded-headers: "true"
-              compute-full-forwarded-for: "true"
-              proxy-body-size: "10000m"
-            metrics:
+          ingressRoute:
+            dashboard:
               enabled: true
-            affinity:
-              podAntiAffinity:
-                requiredDuringSchedulingIgnoredDuringExecution:
-                  - labelSelector:
-                      matchExpressions:
-                        - key: app.kubernetes.io/name
-                          operator: In
-                          values:
-                            - ingress-nginx
-                    topologyKey: kubernetes.io/hostname
-            hpa:
+              matchRule: Host(`traefik.{{ web_entrypoint_ip }}.nip.io`)
+              entryPoints:
+                - web
+          providers:
+            kubernetesCRD:
               enabled: true
-              minReplicas: 2
-              maxReplicas: 5
-              targetCPUUtilizationPercentage: 50
+              allowCrossNamespace: true
+            kubernetesIngress:
+              enabled: true
+              publishedService:
+                enabled: true
+          logs:
+            general:
+              level: INFO
+            access:
+              enabled: true
+              format: json
+          additionalArguments:
+            - "--global.checknewversion=false"
+            - "--global.sendanonymoususage=false"
+            - "--api.insecure=true"
+            - "--serversTransport.insecureSkipVerify=true"
+
+    - name: Wait for Traefik pods to be ready
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: traefik-system
+        label_selectors:
+          - app.kubernetes.io/name=traefik
+      register: traefik_pods
+      until: >
+        traefik_pods.resources | length > 0 and
+        traefik_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length == traefik_pods.resources | length
+      retries: 30
+      delay: 10
+
+    - name: Display Traefik Dashboard URL
+      debug:
+        msg: "Traefik Dashboard available at: http://traefik.{{ web_entrypoint_ip }}.nip.io"

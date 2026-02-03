@@ -34,37 +34,60 @@
       debug:
         msg: "Available services: {{ dashboard_services.resources | map(attribute='metadata.name') | list }}"
 
-    - name: Deploy Kubernetes Dashboard Ingress
+    - name: Create IP AllowList Middleware for Dashboard
       tags: frontend
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: networking.k8s.io/v1
-          kind: Ingress
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: dashboard-ipallowlist
+            namespace: kubernetes-dashboard
+          spec:
+            ipAllowList:
+              sourceRange:
+                - 10.0.0.0/8
+                - 192.168.0.0/16
+
+    - name: Create ServersTransport for HTTPS backend
+      tags: frontend
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: ServersTransport
+          metadata:
+            name: dashboard-transport
+            namespace: kubernetes-dashboard
+          spec:
+            insecureSkipVerify: true
+
+    - name: Deploy Kubernetes Dashboard IngressRoute
+      tags: frontend
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
           metadata:
             name: dashboard-ingress
             namespace: kubernetes-dashboard
-            annotations:
-              nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-              nginx.ingress.kubernetes.io/use-regex: "true"
-              nginx.ingress.kubernetes.io/proxy-body-size: 1000m
-              nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
-              nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
-              nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
-              nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,192.168.0.0/16"
           spec:
-            ingressClassName: nginx
-            rules:
-              - host: "dashboard.{{ web_entrypoint_ip }}.nip.io"
-                http:
-                  paths:
-                    - pathType: Prefix
-                      path: /
-                      backend:
-                        service:
-                          name: kubernetes-dashboard
-                          port:
-                            number: 443 
+            entryPoints:
+              - websecure
+            routes:
+              - match: "Host(`dashboard.{{ web_entrypoint_ip }}.nip.io`)"
+                kind: Rule
+                middlewares:
+                  - name: dashboard-ipallowlist
+                    namespace: kubernetes-dashboard
+                services:
+                  - name: kubernetes-dashboard
+                    port: 443
+                    scheme: https
+                    serversTransport: dashboard-transport
+            tls: {}
 
     - name: Create ServiceAccount for dashboard admin
       kubernetes.core.k8s:
@@ -93,9 +116,10 @@
             name: cluster-admin
             apiGroup: rbac.authorization.k8s.io
 
-    - name: get dashboard admin token
+    - name: Get dashboard admin token
       command: kubectl -n kubernetes-dashboard create token dashboard-admin
       register: dashboard_token
+      changed_when: false
 
     - name: Show token
       debug:
