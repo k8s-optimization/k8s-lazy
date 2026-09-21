@@ -7,6 +7,7 @@
         name: tigera-operator
         chart_ref: tigera-operator
         chart_repo_url: https://docs.tigera.io/calico/charts
+        chart_version: "v3.32.2"
         release_namespace: tigera-operator
         create_namespace: true
         release_state: present

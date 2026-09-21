@@ -9,6 +9,10 @@
         name: traefik
         chart_ref: traefik
         chart_repo_url: https://traefik.github.io/charts
+        # Pinned: unpinned, every run silently upgrades to whatever is latest.
+        # Bumping to >=40.x requires renaming `logs.general` -> `log` and
+        # `logs.access` -> `accessLog`, otherwise the chart schema rejects values.
+        chart_version: "39.0.0"
         release_namespace: traefik-system
         create_namespace: true
         release_state: present

@@ -25,3 +25,12 @@
         DESIRED_VERSION: v3.19.0
       command: /tmp/install_helm.sh
       when: helm_installed.rc != 0
+
+    # Without helm-diff the kubernetes.core.helm module falls back to a coarse
+    # check that both misses and invents changes ("The default idempotency check
+    # can fail to report changes in certain cases").
+    - name: Install helm-diff plugin for reliable idempotency checks
+      kubernetes.core.helm_plugin:
+        plugin_path: https://github.com/databus23/helm-diff
+        plugin_version: "3.15.13"
+        state: present

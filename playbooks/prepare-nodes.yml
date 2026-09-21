@@ -20,11 +20,18 @@
           - software-properties-common
           - python3-pip          # <- ensure pip is installed
           - nfs-common
+          - open-iscsi           # <- Longhorn prerequisite
         state: present
+
+    - name: Enable iscsid for Longhorn
+      systemd:
+        name: iscsid
+        state: started
+        enabled: yes
 
     - name: Disable swap
       command: swapoff -a
-      when: ansible_swaptotal_mb > 0
+      when: ansible_facts['swaptotal_mb'] > 0
       changed_when: true
 
     - name: Remove swap from fstab
@@ -66,7 +73,26 @@
         state: present
       loop: "{{ groups['k8s_cluster'] }}"
 
-    - name: Install Python libraries globally (Force)
+    - name: Get PyYAML version seen by the Ansible interpreter
+      command: "{{ ansible_facts['python']['executable'] }} -c 'import yaml; print(yaml.__version__)'"
+      register: pyyaml_version
+      changed_when: false
+      failed_when: false
+
+    # Ubuntu ships PyYAML as a dpkg without a RECORD file, so pip refuses to
+    # upgrade it ("Cannot uninstall PyYAML 6.0.1, RECORD file not found"), which
+    # breaks any install pulling pyyaml>=6.0.3 (current kubernetes client).
+    # --ignore-installed drops a newer copy in /usr/local/lib/python3/dist-packages,
+    # which precedes the distro path, and leaves the dpkg untouched.
+    - name: Install a pip-managed PyYAML next to the distro one
+      ansible.builtin.pip:
+        name: "PyYAML>=6.0.3"
+        extra_args: --break-system-packages --ignore-installed
+      when: >-
+        pyyaml_version.rc != 0 or
+        pyyaml_version.stdout is version('6.0.3', '<')
+
+    - name: Install Python libraries globally
       ansible.builtin.pip:
         name:
           - kubernetes

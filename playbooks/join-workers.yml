@@ -1,22 +1,96 @@
 ---
+# kubeadm join patches the Node object to record the CRI socket. Longhorn's
+# validating webhook has a `v1 nodes UPDATE` rule with failurePolicy: Fail, so
+# while its pods are down every join is rejected with
+# "failed calling webhook validator.longhorn.io ... connection refused" - and
+# Longhorn cannot come back up until workers join. Break the deadlock by
+# relaxing the webhook, but only while it is provably unable to answer.
+# install-longhorn.yaml puts failurePolicy back once the webhook is serving.
+- name: Unblock node registration
+  hosts: masters
+  become: yes
+  tasks:
+    - name: Look up the Longhorn validating webhook
+      kubernetes.core.k8s_info:
+        api_version: admissionregistration.k8s.io/v1
+        kind: ValidatingWebhookConfiguration
+        name: longhorn-webhook-validator
+      register: longhorn_validator
+
+    - name: Look up the Longhorn admission webhook endpoints
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Endpoints
+        namespace: longhorn-system
+        name: longhorn-admission-webhook
+      register: longhorn_webhook_endpoints
+      when: longhorn_validator.resources | default([]) | length > 0
+
+    - name: Record whether the Longhorn webhook is blocking node updates
+      set_fact:
+        longhorn_webhook_blocking: >-
+          {{ longhorn_validator.resources | default([]) | length > 0 and
+             (longhorn_webhook_endpoints.resources | default([]) | length == 0 or
+              longhorn_webhook_endpoints.resources[0].subsets | default([]) | length == 0) }}
+
+    - name: Relax the Longhorn validating webhook while workers register
+      kubernetes.core.k8s:
+        state: patched
+        api_version: admissionregistration.k8s.io/v1
+        kind: ValidatingWebhookConfiguration
+        name: longhorn-webhook-validator
+        merge_type: strategic-merge
+        definition:
+          webhooks:
+            - name: validator.longhorn.io
+              failurePolicy: Ignore
+      when: longhorn_webhook_blocking | bool
+
 - hosts: workers
   become: yes
   tasks:
-    - name: Check if node is already joined
+    - name: Check for local kubeadm state
       stat:
         path: /etc/kubernetes/kubelet.conf
       register: kubelet_conf
+
+    - name: List cluster nodes
+      kubernetes.core.k8s_info:
+        kind: Node
+      delegate_to: "{{ groups['masters'][0] }}"
+      run_once: true
+      register: cluster_nodes
+
+    - name: Record whether this worker is registered with the API server
+      set_fact:
+        node_registered: >-
+          {{ node_ip in (cluster_nodes.resources | default([]) | map(attribute='status.addresses') | flatten
+                         | selectattr('type', 'eq', 'InternalIP') | map(attribute='address') | list) }}
+
+    # Membership lives in the API server, not on disk. The old check looked only
+    # at kubelet.conf, so a node that was deleted from the cluster (or whose join
+    # died half-way) kept its local state and was skipped forever - it never
+    # rejoined and nothing could schedule. Clear the leftovers and join again.
+    - name: Reset stale kubeadm state
+      command: kubeadm reset -f
+      when: kubelet_conf.stat.exists and not (node_registered | bool)
+
+    - name: Remove stale CNI config left behind by the reset
+      file:
+        path: /etc/cni/net.d
+        state: absent
+      when: kubelet_conf.stat.exists and not (node_registered | bool)
 
     - name: Copy join command from master
       copy:
         src: ./kubeadm_join_cmd.sh
         dest: /tmp/kubeadm_join_cmd.sh
         mode: '0755'
-      when: not kubelet_conf.stat.exists
+      when: not (node_registered | bool)
 
     - name: Join worker to cluster
       command: /tmp/kubeadm_join_cmd.sh
-      when: not kubelet_conf.stat.exists
+      when: not (node_registered | bool)
 
     - name: Wait for kubelet to be ready
       wait_for:
@@ -24,4 +98,34 @@
         host: "{{ node_ip }}"
         delay: 10
         timeout: 60
+
+- name: Finish worker registration
+  hosts: masters
+  become: yes
+  tasks:
+    - name: List cluster nodes
+      kubernetes.core.k8s_info:
+        kind: Node
+      register: cluster_nodes
+
+    # A join rejected at the "uploading crisocket" step leaves the node
+    # registered and Ready but without the annotation kubeadm writes last,
+    # which later breaks `kubeadm upgrade node` / `kubeadm reset` on it.
+    # The join itself is skipped from then on, so fix it up here.
+    - name: Record the CRI socket on worker nodes that are missing it
+      kubernetes.core.k8s:
+        state: patched
+        kind: Node
+        name: "{{ item.metadata.name }}"
+        definition:
+          metadata:
+            annotations:
+              kubeadm.alpha.kubernetes.io/cri-socket: unix:///var/run/containerd/containerd.sock
+      loop: "{{ cluster_nodes.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when:
+        - "'kubeadm.alpha.kubernetes.io/cri-socket' not in (item.metadata.annotations | default({}))"
+        - (item.status.addresses | selectattr('type', 'eq', 'InternalIP') | map(attribute='address') | first | default(''))
+          in (groups['workers'] | map('extract', hostvars, 'node_ip') | list)
 

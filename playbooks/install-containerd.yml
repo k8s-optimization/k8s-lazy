@@ -51,9 +51,22 @@
         path: /etc/containerd/config.toml
       register: containerd_config
 
+    - name: Read current containerd config
+      slurp:
+        src: /etc/containerd/config.toml
+      register: containerd_config_raw
+      when: containerd_config.stat.exists
+
+    # The containerd.io package ships a stub config whose only directive is
+    # `disabled_plugins = ["cri"]`; the old "generate only when the file is
+    # missing" check left it in place and kubeadm preflight then died with
+    # "container runtime is not running: ... unknown service runtime.v1.RuntimeService".
+    # Regenerate in that case only, so a node with a working config is untouched.
     - name: Generate containerd config
       shell: containerd config default > /etc/containerd/config.toml
-      when: not containerd_config.stat.exists
+      when: >-
+        not containerd_config.stat.exists or
+        (containerd_config_raw.content | b64decode) is search('(?m)^\s*disabled_plugins\s*=\s*\[[^]]*"cri"')
       notify: restart containerd
 
     - name: Configure containerd to use systemd cgroup driver
@@ -70,11 +83,20 @@
         enabled: yes
         daemon_reload: yes
 
+    - name: Restart containerd now if the config changed
+      meta: flush_handlers
+
     - name: Verify containerd is running
       command: systemctl is-active containerd
       register: containerd_status
       changed_when: false
       failed_when: containerd_status.stdout != "active"
+
+    - name: Verify the CRI plugin is not disabled
+      command: grep -E '^\s*disabled_plugins\s*=\s*\[[^]]*"cri"' /etc/containerd/config.toml
+      register: containerd_cri_disabled
+      changed_when: false
+      failed_when: containerd_cri_disabled.rc != 1
 
   handlers:
     - name: restart containerd
